@@ -113,4 +113,7 @@ tail -n 100 logs/bot.log
 
 - Before pair selection, only `/start` is allowed.
 - TTS is optional by design: if unavailable, bot keeps working without audio.
+- During `/add`, after selecting a theme, bot shows a short "generating" status message while LLM content is prepared.
+- Newly added words become available for `/train` immediately.
+- `/full` for the last studied word is generated once and then read from DB cache on next calls.
 - Secrets must stay in `.env`; never commit real credentials.

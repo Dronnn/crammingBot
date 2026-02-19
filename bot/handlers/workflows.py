@@ -14,9 +14,10 @@ from telegram import (
     InputFile,
     Update,
 )
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
-from bot.constants import SRS_INTERVALS, SUPPORTED_LANGUAGES
+from bot.constants import SUPPORTED_LANGUAGES
 from bot.db.repositories.cards import CardsRepository
 from bot.db.repositories.reviews import ReviewsRepository
 from bot.db.repositories.sets import VocabularySetsRepository
@@ -126,6 +127,22 @@ def _state_clear(context: ContextTypes.DEFAULT_TYPE, key: str) -> None:
         del context.user_data[key]
 
 
+async def _safe_query_answer(
+    query,
+    *,
+    text: str | None = None,
+    show_alert: bool = False,
+) -> None:
+    try:
+        await query.answer(text=text, show_alert=show_alert)
+    except BadRequest as exc:
+        lowered = str(exc).lower()
+        if "query is too old" in lowered or "query id is invalid" in lowered:
+            logger.debug("Ignoring stale callback query answer error: %s", exc)
+            return
+        raise
+
+
 def _example_translation_for_lang(example: ExampleRecord, language: str) -> str:
     if language == "RU":
         return example.translation_ru
@@ -220,7 +237,7 @@ async def add_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     state = context.user_data.get("add_state")
     if not state:
-        await query.answer("Добавление не активно.", show_alert=True)
+        await _safe_query_answer(query, text="Добавление не активно.", show_alert=True)
         return
 
     pair_id = state["pair_id"]
@@ -228,43 +245,43 @@ async def add_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if query.data == ADD_SET_SKIP:
         state["set_id"] = None
-        await query.answer()
+        await _safe_query_answer(query)
         await _finalize_add_preview(update, context)
         return
 
     if query.data == ADD_SET_NEW:
         state["step"] = "new_set_name"
-        await query.answer()
+        await _safe_query_answer(query)
         await query.edit_message_text("Введите название новой темы:")
         return
 
     if query.data.startswith(ADD_SET_EXISTING_PREFIX):
         raw_id = query.data.removeprefix(ADD_SET_EXISTING_PREFIX)
         if not raw_id.isdigit():
-            await query.answer("Некорректные данные.", show_alert=True)
+            await _safe_query_answer(query, text="Некорректные данные.", show_alert=True)
             return
         set_id = int(raw_id)
         existing = await sets_repo.get_by_id(user_id=user.id, pair_id=pair_id, set_id=set_id)
         if existing is None:
-            await query.answer("Тема не найдена.", show_alert=True)
+            await _safe_query_answer(query, text="Тема не найдена.", show_alert=True)
             return
         state["set_id"] = set_id
-        await query.answer()
+        await _safe_query_answer(query)
         await _finalize_add_preview(update, context)
         return
 
     if query.data == ADD_SAVE:
-        await query.answer()
+        await _safe_query_answer(query)
         await _save_add_word(update, context)
         return
 
     if query.data == ADD_CANCEL:
         _state_clear(context, "add_state")
-        await query.answer()
+        await _safe_query_answer(query)
         await query.edit_message_text("Добавление слова отменено.")
         return
 
-    await query.answer("Неизвестное действие.", show_alert=True)
+    await _safe_query_answer(query, text="Неизвестное действие.", show_alert=True)
 
 
 async def _show_set_selection(
@@ -351,6 +368,17 @@ async def _finalize_add_preview(update: Update, context: ContextTypes.DEFAULT_TY
         if target:
             await target.reply_text("Состояние добавления повреждено. Начните /add заново.")
         return
+
+    target = update.effective_message or (update.callback_query.message if update.callback_query else None)
+    status_message = None
+    if target:
+        try:
+            status_message = await target.reply_text(
+                "Генерирую карточку, подождите немного..."
+            )
+        except Exception:
+            status_message = None
+
     source_lang = state["source_lang"]
     target_lang = state["target_lang"]
     word = state["word"]
@@ -365,8 +393,15 @@ async def _finalize_add_preview(update: Update, context: ContextTypes.DEFAULT_TY
         )
     except ContentGenerationError:
         _state_clear(context, "add_state")
-        target = update.effective_message or (update.callback_query.message if update.callback_query else None)
-        if target:
+        if status_message is not None:
+            try:
+                await status_message.edit_text(
+                    "Не удалось сгенерировать карточку. Попробуйте позже."
+                )
+            except Exception:
+                if target:
+                    await target.reply_text("Не удалось сгенерировать примеры. Попробуйте позже.")
+        elif target:
             await target.reply_text("Не удалось сгенерировать примеры. Попробуйте позже.")
         return
 
@@ -375,6 +410,12 @@ async def _finalize_add_preview(update: Update, context: ContextTypes.DEFAULT_TY
 
     tts_bytes = await tts_service.synthesize_word(generated.word, target_lang)
     state["tts_bytes"] = tts_bytes
+
+    if status_message is not None:
+        try:
+            await status_message.edit_text("Готово. Проверьте карточку ниже.")
+        except Exception:
+            pass
 
     keyboard = InlineKeyboardMarkup(
         [
@@ -466,7 +507,7 @@ async def _save_add_word(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         pair_id=state["pair_id"],
         set_id=state.get("set_id"),
         content=generated,
-        next_review_at=datetime.now(UTC) + SRS_INTERVALS[0],
+        next_review_at=datetime.now(UTC),
     )
 
     tts_bytes = state.get("tts_bytes")
@@ -1677,7 +1718,7 @@ async def import_document_handler(update: Update, context: ContextTypes.DEFAULT_
             pair_id=pair_id,
             set_id=None,
             content=generated,
-            next_review_at=datetime.now(UTC) + SRS_INTERVALS[0],
+            next_review_at=datetime.now(UTC),
         )
         tts_bytes = await tts_service.synthesize_word(generated.word, target_lang)
         if tts_bytes:
