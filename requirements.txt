@@ -1,0 +1,6 @@
+python-telegram-bot[job-queue]==21.6
+psycopg[binary]==3.2.12
+psycopg_pool==3.2.8
+python-dotenv==1.0.1
+pytest==7.4.4
+gTTS==2.5.4

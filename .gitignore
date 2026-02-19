@@ -1,0 +1,11 @@
+.env
+.DS_Store
+*.pyc
+__pycache__/
+*.log
+logs/
+.venv/
+venv/
+docs/
+telegram_bot_translator_prompt.md
+telegram_bot_vocab_trainer_cramming_prompt.md
