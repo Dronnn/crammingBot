@@ -116,4 +116,7 @@ tail -n 100 logs/bot.log
 - During `/add`, after selecting a theme, bot shows a short "generating" status message while LLM content is prepared.
 - Newly added words become available for `/train` immediately.
 - `/full` for the last studied word is generated once and then read from DB cache on next calls.
+- For reverse direction answers, multiple expected variants in translation (for example, comma/semicolon-separated) are accepted as:
+  - any single valid variant
+  - several valid variants together with or without punctuation separators
 - Secrets must stay in `.env`; never commit real credentials.

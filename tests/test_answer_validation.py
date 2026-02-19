@@ -59,3 +59,32 @@ def test_validation_ignores_target_synonyms_in_reverse_direction() -> None:
         synonyms=("Heim (дом)",),
     )
     assert not service.is_correct_for_card("Heim", context)
+
+
+def test_validation_accepts_any_single_expected_variant_in_reverse() -> None:
+    service = AnswerValidationService()
+    context = CardAnswerContext(
+        direction="reverse",
+        source_lang="RU",
+        target_lang="DE",
+        word="die Frist",
+        translation="срок, крайний срок",
+        synonyms=(),
+    )
+    assert service.is_correct_for_card("срок", context)
+    assert service.is_correct_for_card("крайний срок", context)
+
+
+def test_validation_accepts_combined_expected_variants_with_any_separator() -> None:
+    service = AnswerValidationService()
+    context = CardAnswerContext(
+        direction="reverse",
+        source_lang="RU",
+        target_lang="DE",
+        word="die Frist",
+        translation="срок; крайний срок",
+        synonyms=(),
+    )
+    assert service.is_correct_for_card("срок, крайний срок", context)
+    assert service.is_correct_for_card("срок; крайний срок", context)
+    assert service.is_correct_for_card("срок крайний срок", context)
