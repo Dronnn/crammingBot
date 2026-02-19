@@ -113,7 +113,7 @@ tail -n 100 logs/bot.log
 
 - Before pair selection, only `/start` is allowed.
 - TTS is optional by design: if unavailable, bot keeps working without audio.
-- During `/add`, after selecting a theme, bot shows a short "generating" status message while LLM content is prepared.
+- During long LLM operations (`/add`, `/full`, synonym regeneration in `/edit`, import generation), bot shows a short "generating" status message.
 - Newly added words become available for `/train` immediately.
 - `/full` for the last studied word is generated once and then read from DB cache on next calls.
 - For reverse direction answers, multiple expected variants in translation (for example, comma/semicolon-separated) are accepted as:

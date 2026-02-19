@@ -143,6 +143,22 @@ async def _safe_query_answer(
         raise
 
 
+async def _show_generation_status(message, text: str) -> Any | None:
+    try:
+        return await message.reply_text(text)
+    except Exception:
+        return None
+
+
+async def _update_generation_status(status_message: Any | None, text: str) -> None:
+    if status_message is None:
+        return
+    try:
+        await status_message.edit_text(text)
+    except Exception:
+        return
+
+
 def _example_translation_for_lang(example: ExampleRecord, language: str) -> str:
     if language == "RU":
         return example.translation_ru
@@ -372,12 +388,10 @@ async def _finalize_add_preview(update: Update, context: ContextTypes.DEFAULT_TY
     target = update.effective_message or (update.callback_query.message if update.callback_query else None)
     status_message = None
     if target:
-        try:
-            status_message = await target.reply_text(
-                "Генерирую карточку, подождите немного..."
-            )
-        except Exception:
-            status_message = None
+        status_message = await _show_generation_status(
+            target,
+            "Секунду, генерирую карточку. Это может занять несколько секунд...",
+        )
 
     source_lang = state["source_lang"]
     target_lang = state["target_lang"]
@@ -394,13 +408,10 @@ async def _finalize_add_preview(update: Update, context: ContextTypes.DEFAULT_TY
     except ContentGenerationError:
         _state_clear(context, "add_state")
         if status_message is not None:
-            try:
-                await status_message.edit_text(
-                    "Не удалось сгенерировать карточку. Попробуйте позже."
-                )
-            except Exception:
-                if target:
-                    await target.reply_text("Не удалось сгенерировать примеры. Попробуйте позже.")
+            await _update_generation_status(
+                status_message,
+                "Не удалось сгенерировать карточку. Попробуйте позже.",
+            )
         elif target:
             await target.reply_text("Не удалось сгенерировать примеры. Попробуйте позже.")
         return
@@ -411,11 +422,7 @@ async def _finalize_add_preview(update: Update, context: ContextTypes.DEFAULT_TY
     tts_bytes = await tts_service.synthesize_word(generated.word, target_lang)
     state["tts_bytes"] = tts_bytes
 
-    if status_message is not None:
-        try:
-            await status_message.edit_text("Готово. Проверьте карточку ниже.")
-        except Exception:
-            pass
+    await _update_generation_status(status_message, "Готово. Проверьте карточку ниже.")
 
     keyboard = InlineKeyboardMarkup(
         [
@@ -1372,6 +1379,10 @@ async def full_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
     snapshot = await words_repo.get_full_snapshot(word_id=word_id)
     if snapshot is None:
+        status_message = await _show_generation_status(
+            message,
+            "Секунду, собираю полную карточку на 4 языках. Это может занять несколько секунд...",
+        )
         try:
             snapshot = await _content_service(context).build_multilingual_snapshot(
                 source_lang=pair.source_lang,
@@ -1382,11 +1393,20 @@ async def full_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 examples=example_input,
             )
         except ContentGenerationError:
-            await message.reply_text(
-                "Не удалось сформировать полную карточку на 4 языках. Попробуйте позже."
+            await _update_generation_status(
+                status_message,
+                "Не удалось сформировать полную карточку на 4 языках. Попробуйте позже.",
             )
+            if status_message is None:
+                await message.reply_text(
+                    "Не удалось сформировать полную карточку на 4 языках. Попробуйте позже."
+                )
             return
         await words_repo.upsert_full_snapshot(word_id=word_id, payload=snapshot)
+        await _update_generation_status(
+            status_message,
+            "Готово. Ниже полная карточка.",
+        )
 
     text = _format_full_snapshot_text(snapshot=snapshot, word=word)
     chunk_size = 3600
@@ -1521,6 +1541,10 @@ async def _handle_edit_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             _state_clear(context, "edit_state")
             await message.reply_text("Слово не найдено.")
             return True
+        status_message = await _show_generation_status(
+            message,
+            "Обновляю перевод и генерирую синонимы. Подождите...",
+        )
         try:
             new_synonyms = await content_service.regenerate_synonyms(
                 source_lang=pair.source_lang,
@@ -1530,9 +1554,15 @@ async def _handle_edit_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             )
         except ContentGenerationError:
             new_synonyms = word.synonyms
+            await _update_generation_status(
+                status_message,
+                "Не удалось обновить синонимы, сохраняю старые.",
+            )
             await message.reply_text(
                 "Перевод сохранен, но синонимы не удалось обновить. Старые синонимы сохранены."
             )
+        else:
+            await _update_generation_status(status_message, "Готово.")
         await words_repo.update_translation_and_synonyms(
             word_id=word.id,
             translation=new_translation,
@@ -1558,6 +1588,10 @@ async def _handle_edit_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return True
 
         await words_repo.replace_examples(word_id=word.id, examples=parsed)
+        status_message = await _show_generation_status(
+            message,
+            "Примеры обновлены. Генерирую новые синонимы, подождите...",
+        )
         try:
             new_synonyms = await content_service.regenerate_synonyms(
                 source_lang=pair.source_lang,
@@ -1570,7 +1604,12 @@ async def _handle_edit_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 translation=word.translation,
                 synonyms=new_synonyms,
             )
+            await _update_generation_status(status_message, "Готово.")
         except ContentGenerationError:
+            await _update_generation_status(
+                status_message,
+                "Примеры обновлены, но синонимы не удалось перегенерировать.",
+            )
             await message.reply_text(
                 "Примеры обновлены, но синонимы не удалось перегенерировать."
             )
@@ -1681,6 +1720,9 @@ async def import_document_handler(update: Update, context: ContextTypes.DEFAULT_
     processed = 0
     rows = list(reader)
     total = len(rows)
+    await message.reply_text(
+        "Импорт запущен. Генерирую карточки, это может занять время..."
+    )
     for row in rows:
         processed += 1
         word = (row.get("word") or "").strip()
