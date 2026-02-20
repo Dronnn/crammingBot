@@ -117,6 +117,7 @@ def _reset_runtime_states(context: ContextTypes.DEFAULT_TYPE) -> None:
         "settings_state",
         "delete_state",
         "edit_state",
+        "fullword_state",
         "sets_state",
         "import_state",
         "last_word_ref",
@@ -356,6 +357,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             "/reminders - напоминания\n"
             "/stats - статистика\n"
             "/full - полная карточка последнего слова на 4 языках\n"
+            "/fullword - полная карточка из памяти по введенному слову\n"
             "/cancel - отменить текущую операцию\n"
             "/help - показать команды"
         )
@@ -562,6 +564,7 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "settings_state",
         "delete_state",
         "edit_state",
+        "fullword_state",
         "sets_state",
         "import_state",
     ):

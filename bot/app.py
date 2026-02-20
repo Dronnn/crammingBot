@@ -71,6 +71,7 @@ from bot.handlers.workflows import (
     edit_command,
     export_command,
     full_command,
+    fullword_command,
     import_command,
     import_document_handler,
     list_callback_handler,
@@ -176,6 +177,7 @@ def create_application(settings: Settings) -> Application:
     app.add_handler(CommandHandler("reminders", reminders_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("full", full_command))
+    app.add_handler(CommandHandler("fullword", fullword_command))
 
     app.add_handler(CallbackQueryHandler(start_source_callback, pattern=START_SOURCE_PATTERN))
     app.add_handler(CallbackQueryHandler(start_target_callback, pattern=START_TARGET_PATTERN))
@@ -256,6 +258,7 @@ async def _post_init(app: Application) -> None:
             BotCommand("reminders", "Включить/выключить напоминания"),
             BotCommand("stats", "Статистика по текущей паре"),
             BotCommand("full", "Полная карточка на 4 языках для последнего слова"),
+            BotCommand("fullword", "Полная карточка из памяти по введенному слову"),
             BotCommand("cancel", "Отменить текущую операцию"),
             BotCommand("help", "Показать список команд"),
         ]

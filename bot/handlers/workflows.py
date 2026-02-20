@@ -1481,6 +1481,73 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await message.reply_text(text)
 
 
+async def fullword_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    user = update.effective_user
+    if message is None or user is None:
+        return
+
+    pair = await get_active_pair(context, user.id)
+    if pair is None:
+        await message.reply_text("Сначала выберите языковую пару с помощью /start.")
+        return
+
+    arg = _command_argument(message.text)
+    if arg:
+        await _send_full_snapshot_by_word(
+            update,
+            context,
+            pair_id=pair.id,
+            word_text=arg,
+        )
+        return
+
+    context.user_data["fullword_state"] = {
+        "step": "await_word",
+        "pair_id": pair.id,
+    }
+    await message.reply_text(
+        "Для какого слова показать полную карточку из памяти? Введите слово."
+    )
+
+
+async def _send_full_snapshot_by_word(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    pair_id: int,
+    word_text: str,
+) -> None:
+    message = update.effective_message or (
+        update.callback_query.message if update.callback_query else None
+    )
+    user = update.effective_user
+    if message is None or user is None:
+        return
+
+    words_repo = _words_repo(context)
+    word = await words_repo.find_by_word(
+        user_id=user.id,
+        pair_id=pair_id,
+        word=word_text,
+    )
+    if word is None:
+        await message.reply_text("Слово не найдено в активной паре.")
+        return
+
+    snapshot = await words_repo.get_full_snapshot(word_id=word.id)
+    if snapshot is None:
+        await message.reply_text(
+            "Для этого слова нет сохраненной полной карточки в памяти."
+        )
+        return
+
+    text = _format_full_snapshot_text(snapshot=snapshot, word=word)
+    chunk_size = 3600
+    for start in range(0, len(text), chunk_size):
+        await message.reply_text(text[start : start + chunk_size])
+
+
 async def full_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     user = update.effective_user
@@ -1646,6 +1713,36 @@ async def _handle_delete_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         return False
     await _delete_by_word_text(update, context, message.text.strip(), state["pair_id"])
     _state_clear(context, "delete_state")
+    return True
+
+
+async def _handle_fullword_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    message = update.effective_message
+    if message is None or not message.text:
+        return False
+    state = context.user_data.get("fullword_state")
+    if not state:
+        return False
+    if state.get("step") != "await_word":
+        return False
+
+    pair_id = state.get("pair_id")
+    if not isinstance(pair_id, int):
+        _state_clear(context, "fullword_state")
+        return True
+
+    word_text = message.text.strip()
+    if not word_text:
+        await message.reply_text("Введите непустое слово.")
+        return True
+
+    await _send_full_snapshot_by_word(
+        update,
+        context,
+        pair_id=pair_id,
+        word_text=word_text,
+    )
+    _state_clear(context, "fullword_state")
     return True
 
 
@@ -1836,6 +1933,7 @@ async def stateful_text_router(update: Update, context: ContextTypes.DEFAULT_TYP
         _handle_reminder_text,
         _handle_train_text,
         _handle_add_text,
+        _handle_fullword_text,
         _handle_delete_text,
         _handle_edit_text,
         _handle_sets_text,
