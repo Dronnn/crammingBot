@@ -19,7 +19,7 @@ class Settings:
     telegram_bot_token: str
     openai_api_key: str
     database_url: str
-    openai_model: str = "gpt-5.2-pro"
+    openai_model: str = "gpt-5.2"
     openai_fallback_models: tuple[str, ...] = ("gpt-4o",)
     openai_timeout_seconds: int = 60
     log_level: str = "INFO"
@@ -61,7 +61,7 @@ def load_settings() -> Settings:
         telegram_bot_token=_require("TELEGRAM_BOT_TOKEN"),
         openai_api_key=_require("OPENAI_API_KEY"),
         database_url=_require("DATABASE_URL"),
-        openai_model=os.getenv("OPENAI_MODEL", "gpt-5.2-pro").strip() or "gpt-5.2-pro",
+        openai_model=os.getenv("OPENAI_MODEL", "gpt-5.2").strip() or "gpt-5.2",
         openai_fallback_models=_parse_fallback_models(
             os.getenv("OPENAI_FALLBACK_MODELS", "gpt-4o")
         ),

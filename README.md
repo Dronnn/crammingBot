@@ -42,7 +42,7 @@ Create `.env` from `.env.example` on runtime host:
 - `TELEGRAM_BOT_TOKEN`
 - `OPENAI_API_KEY`
 - `DATABASE_URL`
-- `OPENAI_MODEL` (optional, default `gpt-5.2-pro`)
+- `OPENAI_MODEL` (optional, default `gpt-5.2`)
 - `OPENAI_FALLBACK_MODELS` (optional, comma-separated, default `gpt-4o`)
 - `OPENAI_TIMEOUT_SECONDS` (optional, default `60`)
 - `LOG_LEVEL` (optional, default `INFO`)

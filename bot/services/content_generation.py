@@ -20,7 +20,7 @@ class ContentGenerationError(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class OpenAIContentGenerator:
     api_key: str
-    model: str = "gpt-5.2-pro"
+    model: str = "gpt-5.2"
     fallback_models: tuple[str, ...] = ("gpt-4o",)
     timeout_seconds: int = 60
 
