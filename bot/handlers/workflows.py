@@ -1587,12 +1587,60 @@ async def _send_full_snapshot_by_word(
         if pair is None or pair.user_id != user.id:
             await message.reply_text("Активная языковая пара не найдена.")
             return
+
         examples = await words_repo.list_examples(word_id=word.id)
-        snapshot = _build_snapshot_from_stored_data(
-            pair=pair,
-            word=word,
-            examples=examples,
+        example_input = tuple(
+            {
+                "target_sentence": item.sentence,
+                "source_translation": _example_translation_for_lang(item, pair.source_lang),
+            }
+            for item in examples
+            if item.sentence.strip()
         )
+        synonyms_for_snapshot = tuple(
+            base
+            for base in (_synonym_base_text(item) for item in word.synonyms)
+            if base
+        )
+
+        if await _acquire_llm_slot(context=context, message=message, user_id=user.id):
+            status_message = await _show_generation_status(
+                message,
+                (
+                    "Для этого слова нет готового полного snapshot в памяти. "
+                    "Формирую и сохраняю, подождите..."
+                ),
+            )
+            try:
+                snapshot = await _content_service(context).build_multilingual_snapshot(
+                    source_lang=pair.source_lang,
+                    target_lang=pair.target_lang,
+                    word=word.word,
+                    translation=word.translation,
+                    synonyms=synonyms_for_snapshot,
+                    examples=example_input,
+                )
+                await words_repo.upsert_full_snapshot(word_id=word.id, payload=snapshot)
+                await _update_generation_status(
+                    status_message,
+                    "Готово. Snapshot сохранен в памяти, ниже полная карточка.",
+                )
+            except ContentGenerationError:
+                snapshot = _build_snapshot_from_stored_data(
+                    pair=pair,
+                    word=word,
+                    examples=examples,
+                )
+                await _update_generation_status(
+                    status_message,
+                    "Не удалось сформировать полный snapshot, показываю сохраненные данные из БД.",
+                )
+        else:
+            snapshot = _build_snapshot_from_stored_data(
+                pair=pair,
+                word=word,
+                examples=examples,
+            )
 
     text = _format_full_snapshot_text(snapshot=snapshot, word=word)
     chunk_size = 3600
