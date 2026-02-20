@@ -1526,7 +1526,7 @@ async def _send_full_snapshot_by_word(
         return
 
     words_repo = _words_repo(context)
-    word = await words_repo.find_by_word(
+    word = await words_repo.find_by_word_for_lookup(
         user_id=user.id,
         pair_id=pair_id,
         word=word_text,

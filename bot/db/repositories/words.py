@@ -8,6 +8,7 @@ from typing import Any
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
+from bot.domain.normalization import search_variants
 from bot.domain.content import ExampleContent, GeneratedWordContent
 from bot.domain.models import ExampleRecord, WordRecord
 
@@ -148,6 +149,43 @@ class WordsRepository:
                 await cursor.execute(query, (user_id, pair_id, word))
                 row = await cursor.fetchone()
         return _row_to_word_record(row) if row else None
+
+    async def find_by_word_for_lookup(
+        self,
+        *,
+        user_id: int,
+        pair_id: int,
+        word: str,
+    ) -> WordRecord | None:
+        exact = await self.find_by_word(user_id=user_id, pair_id=pair_id, word=word)
+        if exact is not None:
+            return exact
+
+        target_variants = search_variants(word)
+        if not target_variants:
+            return None
+
+        query = """
+        SELECT
+            id, user_id, language_pair_id, vocabulary_set_id, word, translation, synonyms,
+            part_of_speech, gender, declension, transcription, note, tts_word_file_id
+        FROM words
+        WHERE user_id = %s AND language_pair_id = %s
+        ORDER BY id ASC
+        """
+        async with self._pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(query, (user_id, pair_id))
+                rows = await cursor.fetchall()
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            candidate_word = str(row.get("word") or "")
+            candidate_variants = search_variants(candidate_word)
+            if target_variants.intersection(candidate_variants):
+                return _row_to_word_record(row)
+        return None
 
     async def get_by_id(
         self,

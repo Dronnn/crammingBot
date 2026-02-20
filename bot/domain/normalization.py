@@ -27,3 +27,15 @@ def german_variants(text: str) -> set[str]:
         return {base, without_article}
     return {base}
 
+
+def search_variants(text: str) -> set[str]:
+    base = normalize_text(text)
+    if not base:
+        return set()
+
+    variants = {base, base.replace(" ", "")}
+    without_article = strip_german_article(base)
+    if without_article:
+        variants.add(without_article)
+        variants.add(without_article.replace(" ", ""))
+    return {item for item in variants if item}

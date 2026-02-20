@@ -110,7 +110,7 @@ tail -n 100 logs/bot.log
 - `/reminders`
 - `/stats`
 - `/full` (полная карточка последнего слова на 4 языках; кэшируется в БД после первого запроса)
-- `/fullword` (полная карточка по введенному слову только из сохраненного snapshot в памяти; без генерации)
+- `/fullword` (полная карточка по введенному слову только из сохраненного snapshot в памяти; без генерации; поиск игнорирует регистр/лишнюю пунктуацию)
 - `/help`
 - `/cancel`
 
@@ -174,7 +174,7 @@ quiet_hours_end: 9
 - Rate-limit check is done only when local data is missing and a real LLM call is required.
 - Newly added words become available for `/train` immediately.
 - `/full` for the last studied word is generated once and then read from DB cache on next calls.
-- `/fullword` asks for a word and shows only the cached full card from DB memory (no LLM generation fallback).
+- `/fullword` asks for a word and shows only the cached full card from DB memory (no LLM generation fallback), using normalized lookup (case-insensitive, punctuation-tolerant, German article-tolerant).
 - CSV import safety limits: max `512 KB` file size and max `200` rows per import operation.
 - Reminder delivery sends a mini-question directly in chat (without starting `/train`); the answer is checked in one message and applied to SRS.
 - Reminder schedule is user-configurable via `/settings` (`timezone` as `+4/-2`, morning hour, intraday thresholds/interval, quiet hours).
