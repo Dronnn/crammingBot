@@ -178,6 +178,7 @@ quiet_hours_end: 9
 - After editing translation/examples, existing full-card snapshot cache for that word is invalidated; next `/fullword` or `/full` rebuilds fresh snapshot.
 - CSV import safety limits: max `512 KB` file size and max `200` rows per import operation.
 - Reminder delivery sends a mini-question directly in chat (without starting `/train`); the answer is checked in one message and applied to SRS.
+- Mini-quiz pending state is stored in `reminder_quiz_states` with JSONB-safe synonyms payload and is processed with priority over stale local train state, so each mini-answer gets explicit feedback (`Верно` / `Неверно`).
 - Reminder schedule is user-configurable via `/settings` (`timezone` as `+4/-2`, morning hour, intraday thresholds/interval, quiet hours).
 - For reverse direction answers, multiple expected variants in translation (for example, comma/semicolon-separated) are accepted as:
   - any single valid variant

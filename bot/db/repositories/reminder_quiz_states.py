@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from psycopg.rows import dict_row
@@ -45,7 +46,7 @@ class ReminderQuizStatesRepository:
             sent_at,
             updated_at
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, NOW())
         ON CONFLICT (user_id) DO UPDATE SET
             card_id = EXCLUDED.card_id,
             direction = EXCLUDED.direction,
@@ -58,6 +59,7 @@ class ReminderQuizStatesRepository:
             sent_at = EXCLUDED.sent_at,
             updated_at = NOW()
         """
+        synonyms_json = json.dumps(list(synonyms), ensure_ascii=False)
         async with self._pool.connection() as conn:
             async with conn.cursor() as cursor:
                 await cursor.execute(
@@ -70,7 +72,7 @@ class ReminderQuizStatesRepository:
                         target_lang,
                         word,
                         translation,
-                        list(synonyms),
+                        synonyms_json,
                         srs_index,
                         sent_at,
                     ),

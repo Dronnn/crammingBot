@@ -764,13 +764,18 @@ async def _handle_reminder_text(update: Update, context: ContextTypes.DEFAULT_TY
     user = update.effective_user
     if message is None or user is None or not message.text:
         return False
-    if context.user_data.get("train_state"):
-        return False
 
     reminder_repo = _reminder_quiz_repo(context)
     state = await reminder_repo.get(user.id)
     if not isinstance(state, dict):
         return False
+
+    if context.user_data.get("train_state"):
+        logger.info(
+            "Pending reminder answer for user %s while train_state exists; clearing stale train_state",
+            user.id,
+        )
+        _state_clear(context, "train_state")
 
     try:
         card_id = int(state["card_id"])
@@ -962,7 +967,7 @@ async def _handle_train_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     index = state["index"]
     if index >= len(cards):
         _state_clear(context, "train_state")
-        return True
+        return False
 
     card = cards[index]
     validator = _validation_service(context)
