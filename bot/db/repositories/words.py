@@ -256,6 +256,13 @@ class WordsRepository:
                 await cursor.execute(query, (word_id, payload_json))
             await conn.commit()
 
+    async def clear_full_snapshot(self, *, word_id: int) -> None:
+        query = "DELETE FROM word_full_snapshots WHERE word_id = %s"
+        async with self._pool.connection() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute(query, (word_id,))
+            await conn.commit()
+
     async def count_words(
         self,
         *,

@@ -1894,6 +1894,7 @@ async def _handle_edit_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 translation=new_translation,
                 synonyms=word.synonyms,
             )
+            await words_repo.clear_full_snapshot(word_id=word.id)
             _state_clear(context, "edit_state")
             await message.reply_text(
                 "Перевод обновлен. Синонимы оставлены прежними из-за лимита генерации."
@@ -1926,6 +1927,7 @@ async def _handle_edit_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             translation=new_translation,
             synonyms=new_synonyms,
         )
+        await words_repo.clear_full_snapshot(word_id=word.id)
         _state_clear(context, "edit_state")
         await message.reply_text("Перевод обновлен.")
         return True
@@ -1946,6 +1948,7 @@ async def _handle_edit_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return True
 
         await words_repo.replace_examples(word_id=word.id, examples=parsed)
+        await words_repo.clear_full_snapshot(word_id=word.id)
         if not await _acquire_llm_slot(context=context, message=message, user_id=user.id):
             _state_clear(context, "edit_state")
             await message.reply_text("Примеры сохранены. Синонимы не обновлялись из-за лимита генерации.")

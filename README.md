@@ -175,6 +175,7 @@ quiet_hours_end: 9
 - Newly added words become available for `/train` immediately.
 - `/full` for the last studied word is generated once and then read from DB cache on next calls.
 - `/fullword` asks for a word and reads cached snapshot from DB; if missing, it generates and saves one, and only if generation fails/rate-limit blocks it, shows card assembled from stored word/examples. Lookup is normalized (case-insensitive, punctuation-tolerant, German article-tolerant).
+- After editing translation/examples, existing full-card snapshot cache for that word is invalidated; next `/fullword` or `/full` rebuilds fresh snapshot.
 - CSV import safety limits: max `512 KB` file size and max `200` rows per import operation.
 - Reminder delivery sends a mini-question directly in chat (without starting `/train`); the answer is checked in one message and applied to SRS.
 - Reminder schedule is user-configurable via `/settings` (`timezone` as `+4/-2`, morning hour, intraday thresholds/interval, quiet hours).
