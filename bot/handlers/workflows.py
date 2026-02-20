@@ -25,7 +25,13 @@ from bot.db.repositories.sets import VocabularySetsRepository
 from bot.db.repositories.users import UsersRepository
 from bot.db.repositories.words import WordsRepository
 from bot.domain.content import ExampleContent, GeneratedWordContent
-from bot.domain.models import CardAnswerContext, DueCardRecord, ExampleRecord
+from bot.domain.models import (
+    CardAnswerContext,
+    DueCardRecord,
+    ExampleRecord,
+    LanguagePairRecord,
+    WordRecord,
+)
 from bot.domain.srs import SRSService
 from bot.domain.validation import AnswerValidationService
 from bot.handlers.common import get_active_pair, pairs_repo
@@ -269,6 +275,46 @@ def _format_full_snapshot_text(
             for code in FULL_LANGUAGE_ORDER:
                 lines.append(f"   {code}: {item.get(code, '-') or '-'}")
     return "\n".join(lines)
+
+
+def _build_snapshot_from_stored_data(
+    *,
+    pair: LanguagePairRecord,
+    word: WordRecord,
+    examples: tuple[ExampleRecord, ...],
+) -> dict[str, Any]:
+    word_map: dict[str, str] = {code: "-" for code in FULL_LANGUAGE_ORDER}
+    word_map[pair.target_lang] = word.word
+    word_map[pair.source_lang] = word.translation
+
+    synonyms_payload: list[dict[str, str]] = []
+    for raw in word.synonyms:
+        text = raw.strip()
+        if not text:
+            continue
+        row = {code: "-" for code in FULL_LANGUAGE_ORDER}
+        row[pair.target_lang] = text
+        row["target"] = text
+        synonyms_payload.append(row)
+
+    examples_payload: list[dict[str, str]] = []
+    for example in examples:
+        row = {
+            "RU": example.translation_ru or "-",
+            "EN": example.translation_en or "-",
+            "DE": example.translation_de or "-",
+            "HY": example.translation_hy or "-",
+        }
+        sentence = example.sentence.strip()
+        if sentence:
+            row[pair.target_lang] = sentence
+        examples_payload.append(row)
+
+    return {
+        "word": word_map,
+        "synonyms": synonyms_payload,
+        "examples": examples_payload,
+    }
 
 
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1537,10 +1583,16 @@ async def _send_full_snapshot_by_word(
 
     snapshot = await words_repo.get_full_snapshot(word_id=word.id)
     if snapshot is None:
-        await message.reply_text(
-            "Для этого слова нет сохраненной полной карточки в памяти."
+        pair = await pairs_repo(context).get_by_id(pair_id)
+        if pair is None or pair.user_id != user.id:
+            await message.reply_text("Активная языковая пара не найдена.")
+            return
+        examples = await words_repo.list_examples(word_id=word.id)
+        snapshot = _build_snapshot_from_stored_data(
+            pair=pair,
+            word=word,
+            examples=examples,
         )
-        return
 
     text = _format_full_snapshot_text(snapshot=snapshot, word=word)
     chunk_size = 3600
