@@ -36,6 +36,8 @@ from bot.handlers.basic import (
     pair_source_callback,
     pair_switch_callback,
     pair_target_callback,
+    settings_command,
+    settings_text_handler,
     start_command,
     start_source_callback,
     start_target_callback,
@@ -145,6 +147,7 @@ def create_application(settings: Settings) -> Application:
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("cancel", cancel_command))
+    app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("pair", pair_command))
     app.add_handler(CommandHandler("add", add_command))
     app.add_handler(CommandHandler("train", train_command))
@@ -201,6 +204,10 @@ def create_application(settings: Settings) -> Application:
     )
 
     app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, settings_text_handler),
+        group=95,
+    )
+    app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, stateful_text_router),
         group=100,
     )
@@ -221,6 +228,7 @@ async def _post_init(app: Application) -> None:
         [
             BotCommand("start", "Первый запуск и выбор языковой пары"),
             BotCommand("pair", "Сменить активную языковую пару"),
+            BotCommand("settings", "Настройки напоминаний"),
             BotCommand("add", "Добавить новое слово"),
             BotCommand("train", "Начать тренировку"),
             BotCommand("due", "Показать количество карточек к повторению"),

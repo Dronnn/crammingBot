@@ -80,6 +80,12 @@ class UsersRepository:
             active_pair_id,
             reminders_enabled,
             timezone,
+            daily_reminder_hour,
+            intraday_min_due,
+            intraday_idle_hours,
+            intraday_interval_minutes,
+            quiet_hours_start,
+            quiet_hours_end,
             last_training_at,
             last_daily_reminder_date,
             last_intraday_reminder_at
@@ -105,4 +111,64 @@ class UsersRepository:
         async with self._pool.connection() as conn:
             async with conn.cursor() as cursor:
                 await cursor.execute(query, (at, user_id))
+            await conn.commit()
+
+    async def get_reminder_settings(self, user_id: int) -> dict | None:
+        query = """
+        SELECT
+            timezone,
+            daily_reminder_hour,
+            intraday_min_due,
+            intraday_idle_hours,
+            intraday_interval_minutes,
+            quiet_hours_start,
+            quiet_hours_end
+        FROM users
+        WHERE id = %s
+        """
+        async with self._pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(query, (user_id,))
+                row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def update_reminder_settings(
+        self,
+        *,
+        user_id: int,
+        timezone: str,
+        daily_reminder_hour: int,
+        intraday_min_due: int,
+        intraday_idle_hours: int,
+        intraday_interval_minutes: int,
+        quiet_hours_start: int,
+        quiet_hours_end: int,
+    ) -> None:
+        query = """
+        UPDATE users
+        SET
+            timezone = %s,
+            daily_reminder_hour = %s,
+            intraday_min_due = %s,
+            intraday_idle_hours = %s,
+            intraday_interval_minutes = %s,
+            quiet_hours_start = %s,
+            quiet_hours_end = %s
+        WHERE id = %s
+        """
+        async with self._pool.connection() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute(
+                    query,
+                    (
+                        timezone,
+                        daily_reminder_hour,
+                        intraday_min_due,
+                        intraday_idle_hours,
+                        intraday_interval_minutes,
+                        quiet_hours_start,
+                        quiet_hours_end,
+                        user_id,
+                    ),
+                )
             await conn.commit()

@@ -74,6 +74,8 @@ EDIT_CANCEL = "edit:cancel"
 
 PAGE_SIZE = 20
 FULL_LANGUAGE_ORDER = ("RU", "EN", "DE", "HY")
+MAX_IMPORT_FILE_BYTES = 512 * 1024
+MAX_IMPORT_ROWS = 200
 
 
 def _users_repo(context: ContextTypes.DEFAULT_TYPE) -> UsersRepository:
@@ -620,6 +622,9 @@ async def train_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await message.reply_text("Сначала выберите языковую пару с помощью /start.")
         return
 
+    # Any pending reminder quiz should not conflict with explicit full training.
+    context.user_data.pop("reminder_state", None)
+
     cards_repo = _cards_repo(context)
     set_id = context.user_data.get("active_set_id")
     now = datetime.now(UTC)
@@ -660,6 +665,101 @@ async def train_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "mode": "answer",
     }
     await _send_train_card(update, context)
+
+
+async def _handle_reminder_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    message = update.effective_message
+    user = update.effective_user
+    if message is None or user is None or not message.text:
+        return False
+    if context.user_data.get("train_state"):
+        return False
+
+    state = context.user_data.get("reminder_state")
+    if not isinstance(state, dict):
+        return False
+
+    try:
+        card_id = int(state["card_id"])
+        direction = str(state["direction"])
+        source_lang = str(state["source_lang"])
+        target_lang = str(state["target_lang"])
+        word = str(state["word"])
+        translation = str(state["translation"])
+        srs_index = int(state["srs_index"])
+        synonyms = tuple(str(item) for item in state.get("synonyms", []))
+    except Exception:
+        context.user_data.pop("reminder_state", None)
+        await message.reply_text("Мини-повторение сброшено. Я пришлю новый вопрос позже.")
+        return True
+
+    answer = message.text.strip()
+    if not answer:
+        await message.reply_text("Введите ответ текстом.")
+        return True
+
+    validator = _validation_service(context)
+    is_correct = validator.is_correct_for_card(
+        answer=answer,
+        context=CardAnswerContext(
+            direction=direction,  # type: ignore[arg-type]
+            source_lang=source_lang,  # type: ignore[arg-type]
+            target_lang=target_lang,  # type: ignore[arg-type]
+            word=word,
+            translation=translation,
+            synonyms=synonyms,
+        ),
+    )
+
+    now = datetime.now(UTC)
+    sent_at = state.get("sent_at")
+    response_time_ms = None
+    if isinstance(sent_at, (int, float)):
+        response_time_ms = max(0, int((now.timestamp() - sent_at) * 1000))
+
+    cards_repo = _cards_repo(context)
+    reviews_repo = _reviews_repo(context)
+    users_repo = _users_repo(context)
+    srs = _srs_service(context)
+
+    if is_correct:
+        next_state = srs.apply_correct(srs_index, now=now)
+        await cards_repo.update_after_correct(
+            card_id=card_id,
+            next_index=next_state.srs_index,
+            next_review_at=next_state.next_review_at,
+        )
+        await reviews_repo.add_review(
+            card_id=card_id,
+            user_id=user.id,
+            answer=answer,
+            is_correct=True,
+            response_time_ms=response_time_ms,
+        )
+        await users_repo.touch_training_activity(user.id, now)
+        await message.reply_text("Верно. Мини-повторение завершено.")
+    else:
+        next_state = srs.apply_wrong(srs_index, now=now)
+        await cards_repo.update_after_wrong(
+            card_id=card_id,
+            next_index=next_state.srs_index,
+            next_review_at=next_state.next_review_at,
+        )
+        await reviews_repo.add_review(
+            card_id=card_id,
+            user_id=user.id,
+            answer=answer,
+            is_correct=False,
+            response_time_ms=response_time_ms,
+        )
+        await users_repo.touch_training_activity(user.id, now)
+        correct_answer = word if direction == "forward" else translation
+        await message.reply_text(
+            f"Неверно. Правильный ответ: {correct_answer}\nМини-повторение завершено."
+        )
+
+    context.user_data.pop("reminder_state", None)
+    return True
 
 
 async def train_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1668,6 +1768,7 @@ async def _handle_import_text(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def stateful_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     for handler in (
+        _handle_reminder_text,
         _handle_train_text,
         _handle_add_text,
         _handle_delete_text,
@@ -1691,6 +1792,14 @@ async def import_document_handler(update: Update, context: ContextTypes.DEFAULT_
         return
     state = context.user_data.get("import_state")
     if not state or state.get("step") != "await_document":
+        return
+
+    file_size = int(message.document.file_size or 0)
+    if file_size > MAX_IMPORT_FILE_BYTES:
+        _state_clear(context, "import_state")
+        await message.reply_text(
+            f"CSV слишком большой. Максимум: {MAX_IMPORT_FILE_BYTES // 1024} KB."
+        )
         return
 
     file = await context.bot.get_file(message.document.file_id)
@@ -1718,12 +1827,17 @@ async def import_document_handler(update: Update, context: ContextTypes.DEFAULT_
     imported = 0
     skipped = 0
     processed = 0
-    rows = list(reader)
-    total = len(rows)
+    limit_reached = False
     await message.reply_text(
-        "Импорт запущен. Генерирую карточки, это может занять время..."
+        (
+            "Импорт запущен. Генерирую карточки, это может занять время...\n"
+            f"Лимит за один импорт: {MAX_IMPORT_ROWS} строк."
+        )
     )
-    for row in rows:
+    for row in reader:
+        if processed >= MAX_IMPORT_ROWS:
+            limit_reached = True
+            break
         processed += 1
         word = (row.get("word") or "").strip()
         translation = (row.get("translation") or "").strip()
@@ -1775,9 +1889,12 @@ async def import_document_handler(update: Update, context: ContextTypes.DEFAULT_
         imported += 1
 
         if processed % 5 == 0:
-            await message.reply_text(f"Импорт: {processed}/{total} обработано...")
+            await message.reply_text(f"Импорт: {processed} обработано...")
 
     _state_clear(context, "import_state")
+    tail = ""
+    if limit_reached:
+        tail = f"\nДостигнут лимит {MAX_IMPORT_ROWS} строк за один импорт."
     await message.reply_text(
-        f"Импорт завершен. Добавлено: {imported}. Пропущено: {skipped}."
+        f"Импорт завершен. Добавлено: {imported}. Пропущено: {skipped}.{tail}"
     )

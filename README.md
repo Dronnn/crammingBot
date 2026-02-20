@@ -93,6 +93,7 @@ tail -n 100 logs/bot.log
 
 - `/start`
 - `/pair`
+- `/settings` (показать/применить настройки напоминаний шаблоном `key: value`)
 - `/add`
 - `/train`
 - `/due`
@@ -109,6 +110,56 @@ tail -n 100 logs/bot.log
 - `/help`
 - `/cancel`
 
+## Reminder Behavior
+
+- Daily reminder: once per day at `daily_reminder_hour` in user timezone.
+- Intraday reminder: repeats through the day if due cards remain and rate-limit allows.
+- Reminder sends a mini-question in chat and waits for one answer.
+- This mini-question does not start full `/train`.
+
+### Mini-Question Example
+
+Bot:
+
+```text
+Мини-повторение (без запуска /train).
+[Направление: DE -> RU]
+
+Слово: Frist
+
+Переведите на Русский и отправьте ответ одним сообщением.
+```
+
+User:
+
+```text
+срок
+```
+
+Bot:
+
+```text
+Верно. Мини-повторение завершено.
+```
+
+## `/settings` Example
+
+1. Send `/settings`.
+2. Copy template message from bot.
+3. Edit values and send it back in one message.
+
+Template:
+
+```text
+timezone: +4
+daily_reminder_hour: 10
+intraday_min_due: 1
+intraday_idle_hours: 2
+intraday_interval_minutes: 180
+quiet_hours_start: 22
+quiet_hours_end: 9
+```
+
 ## Notes
 
 - Before pair selection, only `/start` is allowed.
@@ -116,6 +167,9 @@ tail -n 100 logs/bot.log
 - During long LLM operations (`/add`, `/full`, synonym regeneration in `/edit`, import generation), bot shows a short "generating" status message.
 - Newly added words become available for `/train` immediately.
 - `/full` for the last studied word is generated once and then read from DB cache on next calls.
+- CSV import safety limits: max `512 KB` file size and max `200` rows per import operation.
+- Reminder delivery sends a mini-question directly in chat (without starting `/train`); the answer is checked in one message and applied to SRS.
+- Reminder schedule is user-configurable via `/settings` (`timezone` as `+4/-2`, morning hour, intraday thresholds/interval, quiet hours).
 - For reverse direction answers, multiple expected variants in translation (for example, comma/semicolon-separated) are accepted as:
   - any single valid variant
   - several valid variants together with or without punctuation separators

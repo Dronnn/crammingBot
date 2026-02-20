@@ -7,6 +7,21 @@ from zoneinfo import ZoneInfo
 _UTC_OFFSET_RE = re.compile(r"^UTC([+-])(\d{1,2})(?::?(\d{2}))?$", flags=re.IGNORECASE)
 
 
+def is_timezone_value_valid(value: str | None) -> bool:
+    candidate = (value or "").strip()
+    if not candidate:
+        return False
+    if _UTC_OFFSET_RE.match(candidate):
+        return True
+    if candidate.upper() == "UTC":
+        return True
+    try:
+        ZoneInfo(candidate)
+        return True
+    except Exception:
+        return False
+
+
 def parse_timezone(value: str | None, default: str = "UTC+3"):
     candidate = (value or "").strip()
     if not candidate:
@@ -36,4 +51,3 @@ def parse_timezone(value: str | None, default: str = "UTC+3"):
                 delta = -delta
             return timezone(delta)
         return timezone(timedelta(hours=3))
-
