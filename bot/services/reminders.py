@@ -16,6 +16,7 @@ from bot.constants import (
     SUPPORTED_LANGUAGES,
 )
 from bot.db.repositories.cards import CardsRepository
+from bot.db.repositories.reminder_quiz_states import ReminderQuizStatesRepository
 from bot.db.repositories.users import UsersRepository
 from bot.domain.models import DueCardRecord
 from bot.utils.telegram_retry import with_telegram_retry
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 class ReminderService:
     users_repo: UsersRepository
     cards_repo: CardsRepository
+    quiz_states_repo: ReminderQuizStatesRepository
     default_timezone: str = "UTC+3"
 
     @staticmethod
@@ -75,31 +77,6 @@ class ReminderService:
             f"Переведите на {ask_lang} и отправьте ответ одним сообщением."
         )
 
-    @staticmethod
-    def _has_pending_quiz(app: Application, user_id: int) -> bool:
-        user_state = app.user_data.get(user_id)
-        if not isinstance(user_state, dict):
-            return False
-        return "reminder_state" in user_state
-
-    @staticmethod
-    def _store_quiz_state(
-        app: Application, user_id: int, card: DueCardRecord, sent_at_utc: datetime
-    ) -> None:
-        user_state = app.user_data.setdefault(user_id, {})
-        user_state["reminder_state"] = {
-            "card_id": card.id,
-            "user_id": card.user_id,
-            "direction": card.direction,
-            "source_lang": card.source_lang,
-            "target_lang": card.target_lang,
-            "word": card.word,
-            "translation": card.translation,
-            "synonyms": list(card.synonyms),
-            "srs_index": card.srs_index,
-            "sent_at": sent_at_utc.timestamp(),
-        }
-
     async def _pick_due_card(self, user_id: int, pair_id: int, now_utc: datetime) -> DueCardRecord | None:
         cards = await self.cards_repo.list_due_cards(
             user_id=user_id,
@@ -139,7 +116,7 @@ class ReminderService:
             if due_count <= 0:
                 continue
 
-            if self._has_pending_quiz(app, user_id):
+            if await self.quiz_states_repo.has_pending(user_id):
                 continue
 
             card = await self._pick_due_card(user_id=user_id, pair_id=pair_id, now_utc=now_utc)
@@ -148,7 +125,18 @@ class ReminderService:
 
             text = self._build_quiz_prompt(card)
             await with_telegram_retry(lambda: app.bot.send_message(chat_id=user_id, text=text))
-            self._store_quiz_state(app, user_id, card, now_utc)
+            await self.quiz_states_repo.upsert(
+                user_id=user_id,
+                card_id=card.id,
+                direction=card.direction,
+                source_lang=card.source_lang,
+                target_lang=card.target_lang,
+                word=card.word,
+                translation=card.translation,
+                synonyms=card.synonyms,
+                srs_index=card.srs_index,
+                sent_at=now_utc,
+            )
             await self.users_repo.mark_daily_reminder_date(user_id, local_date)
 
     async def run_intraday(self, app: Application) -> None:
@@ -212,7 +200,7 @@ class ReminderService:
                 if since_last < timedelta(minutes=interval_minutes):
                     continue
 
-            if self._has_pending_quiz(app, user_id):
+            if await self.quiz_states_repo.has_pending(user_id):
                 continue
 
             card = await self._pick_due_card(user_id=user_id, pair_id=pair_id, now_utc=now_utc)
@@ -221,5 +209,16 @@ class ReminderService:
 
             text = self._build_quiz_prompt(card)
             await with_telegram_retry(lambda: app.bot.send_message(chat_id=user_id, text=text))
-            self._store_quiz_state(app, user_id, card, now_utc)
+            await self.quiz_states_repo.upsert(
+                user_id=user_id,
+                card_id=card.id,
+                direction=card.direction,
+                source_lang=card.source_lang,
+                target_lang=card.target_lang,
+                word=card.word,
+                translation=card.translation,
+                synonyms=card.synonyms,
+                srs_index=card.srs_index,
+                sent_at=now_utc,
+            )
             await self.users_repo.mark_intraday_reminder(user_id, now_utc)

@@ -19,6 +19,7 @@ from telegram.ext import ContextTypes
 
 from bot.constants import SUPPORTED_LANGUAGES
 from bot.db.repositories.cards import CardsRepository
+from bot.db.repositories.reminder_quiz_states import ReminderQuizStatesRepository
 from bot.db.repositories.reviews import ReviewsRepository
 from bot.db.repositories.sets import VocabularySetsRepository
 from bot.db.repositories.users import UsersRepository
@@ -31,6 +32,8 @@ from bot.handlers.common import get_active_pair, pairs_repo
 from bot.runtime_keys import (
     CARDS_REPO_KEY,
     CONTENT_SERVICE_KEY,
+    LLM_RATE_LIMITER_KEY,
+    REMINDER_QUIZ_REPO_KEY,
     REVIEWS_REPO_KEY,
     SETS_REPO_KEY,
     SRS_SERVICE_KEY,
@@ -40,6 +43,7 @@ from bot.runtime_keys import (
     WORDS_REPO_KEY,
 )
 from bot.services.content_generation import ContentGenerationError, OpenAIContentGenerator
+from bot.services.llm_rate_limiter import LLMRateLimiter
 from bot.services.tts import GTTSService
 from bot.utils.formatting import (
     format_declension,
@@ -114,6 +118,14 @@ def _tts_service(context: ContextTypes.DEFAULT_TYPE) -> GTTSService:
     return context.application.bot_data[TTS_SERVICE_KEY]
 
 
+def _reminder_quiz_repo(context: ContextTypes.DEFAULT_TYPE) -> ReminderQuizStatesRepository:
+    return context.application.bot_data[REMINDER_QUIZ_REPO_KEY]
+
+
+def _llm_rate_limiter(context: ContextTypes.DEFAULT_TYPE) -> LLMRateLimiter:
+    return context.application.bot_data[LLM_RATE_LIMITER_KEY]
+
+
 def _command_argument(text: str | None) -> str | None:
     if not text:
         return None
@@ -159,6 +171,37 @@ async def _update_generation_status(status_message: Any | None, text: str) -> No
         await status_message.edit_text(text)
     except Exception:
         return
+
+
+def _format_retry_after(seconds: int) -> str:
+    remaining = max(1, int(seconds))
+    minutes, secs = divmod(remaining, 60)
+    hours, minutes = divmod(minutes, 60)
+    parts: list[str] = []
+    if hours:
+        parts.append(f"{hours} ч")
+    if minutes:
+        parts.append(f"{minutes} мин")
+    if secs and not hours:
+        parts.append(f"{secs} сек")
+    return " ".join(parts) if parts else "1 сек"
+
+
+async def _acquire_llm_slot(
+    *,
+    context: ContextTypes.DEFAULT_TYPE,
+    message,
+    user_id: int,
+) -> bool:
+    decision = await _llm_rate_limiter(context).consume(user_id=user_id)
+    if decision.allowed:
+        return True
+    retry_after = _format_retry_after(decision.retry_after_seconds)
+    await message.reply_text(
+        "Сейчас слишком много генераций. "
+        f"Повторите попытку через {retry_after}."
+    )
+    return False
 
 
 def _example_translation_for_lang(example: ExampleRecord, language: str) -> str:
@@ -400,6 +443,9 @@ async def _finalize_add_preview(update: Update, context: ContextTypes.DEFAULT_TY
     word = state["word"]
     translation = state.get("translation")
 
+    if target and not await _acquire_llm_slot(context=context, message=target, user_id=user.id):
+        return
+
     try:
         generated = await content_service.generate(
             source_lang=source_lang,
@@ -623,7 +669,7 @@ async def train_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     # Any pending reminder quiz should not conflict with explicit full training.
-    context.user_data.pop("reminder_state", None)
+    await _reminder_quiz_repo(context).clear(user.id)
 
     cards_repo = _cards_repo(context)
     set_id = context.user_data.get("active_set_id")
@@ -675,7 +721,8 @@ async def _handle_reminder_text(update: Update, context: ContextTypes.DEFAULT_TY
     if context.user_data.get("train_state"):
         return False
 
-    state = context.user_data.get("reminder_state")
+    reminder_repo = _reminder_quiz_repo(context)
+    state = await reminder_repo.get(user.id)
     if not isinstance(state, dict):
         return False
 
@@ -689,7 +736,7 @@ async def _handle_reminder_text(update: Update, context: ContextTypes.DEFAULT_TY
         srs_index = int(state["srs_index"])
         synonyms = tuple(str(item) for item in state.get("synonyms", []))
     except Exception:
-        context.user_data.pop("reminder_state", None)
+        await reminder_repo.clear(user.id)
         await message.reply_text("Мини-повторение сброшено. Я пришлю новый вопрос позже.")
         return True
 
@@ -714,8 +761,9 @@ async def _handle_reminder_text(update: Update, context: ContextTypes.DEFAULT_TY
     now = datetime.now(UTC)
     sent_at = state.get("sent_at")
     response_time_ms = None
-    if isinstance(sent_at, (int, float)):
-        response_time_ms = max(0, int((now.timestamp() - sent_at) * 1000))
+    if isinstance(sent_at, datetime):
+        sent_at_utc = sent_at.replace(tzinfo=UTC) if sent_at.tzinfo is None else sent_at.astimezone(UTC)
+        response_time_ms = max(0, int((now - sent_at_utc).total_seconds() * 1000))
 
     cards_repo = _cards_repo(context)
     reviews_repo = _reviews_repo(context)
@@ -758,7 +806,7 @@ async def _handle_reminder_text(update: Update, context: ContextTypes.DEFAULT_TY
             f"Неверно. Правильный ответ: {correct_answer}\nМини-повторение завершено."
         )
 
-    context.user_data.pop("reminder_state", None)
+    await reminder_repo.clear(user.id)
     return True
 
 
@@ -1479,6 +1527,8 @@ async def full_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
     snapshot = await words_repo.get_full_snapshot(word_id=word_id)
     if snapshot is None:
+        if not await _acquire_llm_slot(context=context, message=message, user_id=user.id):
+            return
         status_message = await _show_generation_status(
             message,
             "Секунду, собираю полную карточку на 4 языках. Это может занять несколько секунд...",
@@ -1641,6 +1691,17 @@ async def _handle_edit_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             _state_clear(context, "edit_state")
             await message.reply_text("Слово не найдено.")
             return True
+        if not await _acquire_llm_slot(context=context, message=message, user_id=user.id):
+            await words_repo.update_translation_and_synonyms(
+                word_id=word.id,
+                translation=new_translation,
+                synonyms=word.synonyms,
+            )
+            _state_clear(context, "edit_state")
+            await message.reply_text(
+                "Перевод обновлен. Синонимы оставлены прежними из-за лимита генерации."
+            )
+            return True
         status_message = await _show_generation_status(
             message,
             "Обновляю перевод и генерирую синонимы. Подождите...",
@@ -1688,6 +1749,10 @@ async def _handle_edit_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return True
 
         await words_repo.replace_examples(word_id=word.id, examples=parsed)
+        if not await _acquire_llm_slot(context=context, message=message, user_id=user.id):
+            _state_clear(context, "edit_state")
+            await message.reply_text("Примеры сохранены. Синонимы не обновлялись из-за лимита генерации.")
+            return True
         status_message = await _show_generation_status(
             message,
             "Примеры обновлены. Генерирую новые синонимы, подождите...",
@@ -1854,6 +1919,13 @@ async def import_document_handler(update: Update, context: ContextTypes.DEFAULT_
         if exists:
             skipped += 1
             continue
+
+        if not await _acquire_llm_slot(context=context, message=message, user_id=user.id):
+            _state_clear(context, "import_state")
+            await message.reply_text(
+                f"Импорт остановлен из-за лимита генерации. Добавлено: {imported}. Пропущено: {skipped}."
+            )
+            return
 
         try:
             generated = await content_service.generate(

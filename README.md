@@ -42,6 +42,9 @@ Create `.env` from `.env.example` on runtime host:
 - `TELEGRAM_BOT_TOKEN`
 - `OPENAI_API_KEY`
 - `DATABASE_URL`
+- `OPENAI_MODEL` (optional, default `gpt-5.2-pro`)
+- `OPENAI_FALLBACK_MODELS` (optional, comma-separated, default `gpt-4o`)
+- `OPENAI_TIMEOUT_SECONDS` (optional, default `60`)
 - `LOG_LEVEL` (optional, default `INFO`)
 - `DEFAULT_TIMEZONE` (optional, default `UTC+3`)
 
@@ -116,6 +119,7 @@ tail -n 100 logs/bot.log
 - Intraday reminder: repeats through the day if due cards remain and rate-limit allows.
 - Reminder sends a mini-question in chat and waits for one answer.
 - This mini-question does not start full `/train`.
+- Mini-question state is persisted in PostgreSQL, so restart does not drop pending answers.
 
 ### Mini-Question Example
 
@@ -165,6 +169,8 @@ quiet_hours_end: 9
 - Before pair selection, only `/start` is allowed.
 - TTS is optional by design: if unavailable, bot keeps working without audio.
 - During long LLM operations (`/add`, `/full`, synonym regeneration in `/edit`, import generation), bot shows a short "generating" status message.
+- LLM requests are protected by runtime rate limits to avoid budget spikes (per-user + global windows).
+- Rate-limit check is done only when local data is missing and a real LLM call is required.
 - Newly added words become available for `/train` immediately.
 - `/full` for the last studied word is generated once and then read from DB cache on next calls.
 - CSV import safety limits: max `512 KB` file size and max `200` rows per import operation.

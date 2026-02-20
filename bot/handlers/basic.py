@@ -17,6 +17,7 @@ from bot.constants import (
 )
 from bot.errors import RepositoryError
 from bot.handlers.common import pairs_repo, users_repo
+from bot.runtime_keys import REMINDER_QUIZ_REPO_KEY
 from bot.utils.timezone import is_timezone_value_valid
 
 START_SOURCE_PREFIX = "start:src:"
@@ -113,7 +114,6 @@ def _reset_runtime_states(context: ContextTypes.DEFAULT_TYPE) -> None:
     for key in (
         "add_state",
         "train_state",
-        "reminder_state",
         "settings_state",
         "delete_state",
         "edit_state",
@@ -549,12 +549,16 @@ async def settings_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
+    user = update.effective_user
     if message is None:
         return
+    if user is not None:
+        reminder_quiz_repo = context.application.bot_data.get(REMINDER_QUIZ_REPO_KEY)
+        if reminder_quiz_repo is not None and hasattr(reminder_quiz_repo, "clear"):
+            await reminder_quiz_repo.clear(user.id)
     for key in (
         "add_state",
         "train_state",
-        "reminder_state",
         "settings_state",
         "delete_state",
         "edit_state",

@@ -16,6 +16,7 @@ from bot.config import Settings
 from bot.db.pool import DatabasePool
 from bot.db.repositories.cards import CardsRepository
 from bot.db.repositories.language_pairs import LanguagePairsRepository
+from bot.db.repositories.reminder_quiz_states import ReminderQuizStatesRepository
 from bot.db.repositories.reviews import ReviewsRepository
 from bot.db.repositories.sets import VocabularySetsRepository
 from bot.db.repositories.users import UsersRepository
@@ -87,6 +88,8 @@ from bot.runtime_keys import (
     CONTENT_SERVICE_KEY,
     DB_POOL_KEY,
     LANGUAGE_PAIRS_REPO_KEY,
+    LLM_RATE_LIMITER_KEY,
+    REMINDER_QUIZ_REPO_KEY,
     REMINDER_SERVICE_KEY,
     REVIEWS_REPO_KEY,
     SETS_REPO_KEY,
@@ -97,6 +100,7 @@ from bot.runtime_keys import (
     WORDS_REPO_KEY,
 )
 from bot.services.content_generation import OpenAIContentGenerator
+from bot.services.llm_rate_limiter import LLMRateLimiter
 from bot.services.reminders import ReminderService
 from bot.services.tts import GTTSService
 
@@ -111,13 +115,21 @@ def create_application(settings: Settings) -> Application:
     cards_repo = CardsRepository(db_pool.pool)
     reviews_repo = ReviewsRepository(db_pool.pool)
     sets_repo = VocabularySetsRepository(db_pool.pool)
+    reminder_quiz_repo = ReminderQuizStatesRepository(db_pool.pool)
     srs_service = SRSService()
     validation_service = AnswerValidationService()
-    content_service = OpenAIContentGenerator(api_key=settings.openai_api_key)
+    content_service = OpenAIContentGenerator(
+        api_key=settings.openai_api_key,
+        model=settings.openai_model,
+        fallback_models=settings.openai_fallback_models,
+        timeout_seconds=settings.openai_timeout_seconds,
+    )
     tts_service = GTTSService(enabled=True)
+    llm_rate_limiter = LLMRateLimiter()
     reminder_service = ReminderService(
         users_repo=users_repo,
         cards_repo=cards_repo,
+        quiz_states_repo=reminder_quiz_repo,
         default_timezone=settings.default_timezone,
     )
 
@@ -136,10 +148,12 @@ def create_application(settings: Settings) -> Application:
     app.bot_data[CARDS_REPO_KEY] = cards_repo
     app.bot_data[REVIEWS_REPO_KEY] = reviews_repo
     app.bot_data[SETS_REPO_KEY] = sets_repo
+    app.bot_data[REMINDER_QUIZ_REPO_KEY] = reminder_quiz_repo
     app.bot_data[SRS_SERVICE_KEY] = srs_service
     app.bot_data[VALIDATION_SERVICE_KEY] = validation_service
     app.bot_data[CONTENT_SERVICE_KEY] = content_service
     app.bot_data[TTS_SERVICE_KEY] = tts_service
+    app.bot_data[LLM_RATE_LIMITER_KEY] = llm_rate_limiter
     app.bot_data[REMINDER_SERVICE_KEY] = reminder_service
 
     app.add_handler(MessageHandler(filters.COMMAND, active_pair_command_guard), group=-100)
