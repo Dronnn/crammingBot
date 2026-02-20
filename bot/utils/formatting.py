@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from bot.domain.models import ExampleRecord
 
 _DECLENSION_DISPLAY_ORDER = ("nominativ", "akkusativ", "dativ", "genitiv")
+_VERB_GOVERNANCE_KEYS = ("government", "governance", "regierung", "rektion", "управление")
 _LANG_TO_TRANSLATION_FIELD = {
     "RU": "translation_ru",
     "DE": "translation_de",
@@ -18,6 +19,13 @@ def format_declension(declension: dict[str, str] | None) -> str:
         return ""
     values: list[tuple[str, str]] = []
     normalized = {str(key).strip().lower(): str(value).strip() for key, value in declension.items()}
+    normalized = {
+        key: value
+        for key, value in normalized.items()
+        if key not in _VERB_GOVERNANCE_KEYS
+    }
+    if not normalized:
+        return ""
     for key in _DECLENSION_DISPLAY_ORDER:
         value = normalized.get(key, "")
         if value:
@@ -27,6 +35,17 @@ def format_declension(declension: dict[str, str] | None) -> str:
             continue
         values.append((key, value))
     return ", ".join(f"{key}: {value}" for key, value in values)
+
+
+def extract_verb_governance(declension: dict[str, str] | None) -> str | None:
+    if not declension:
+        return None
+    normalized = {str(key).strip().lower(): str(value).strip() for key, value in declension.items()}
+    for key in _VERB_GOVERNANCE_KEYS:
+        value = normalized.get(key)
+        if value:
+            return value
+    return None
 
 
 def _translation_for_lang(example: ExampleRecord, language: str) -> str:

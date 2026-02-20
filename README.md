@@ -173,6 +173,7 @@ quiet_hours_end: 9
 - LLM requests are protected by runtime rate limits to avoid budget spikes (per-user + global windows).
 - Rate-limit check is done only when local data is missing and a real LLM call is required.
 - Newly added words become available for `/train` immediately.
+- For German target-language verbs in `/add`, card generation includes `Управление` pattern (for example, `teilnehmen an + D`, `mitmachen bei + D`) and shows it separately from noun declension.
 - `/full` for the last studied word is generated once and then read from DB cache on next calls.
 - `/fullword` asks for a word and reads cached snapshot from DB; if missing, it generates and saves one, and only if generation fails/rate-limit blocks it, shows card assembled from stored word/examples. Lookup is normalized (case-insensitive, punctuation-tolerant, German article-tolerant).
 - After editing translation/examples, existing full-card snapshot cache for that word is invalidated; next `/fullword` or `/full` rebuilds fresh snapshot.

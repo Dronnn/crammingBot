@@ -1,7 +1,12 @@
 from datetime import UTC, datetime, timedelta
 
 from bot.domain.models import ExampleRecord
-from bot.utils.formatting import format_declension, format_examples, format_overdue
+from bot.utils.formatting import (
+    extract_verb_governance,
+    format_declension,
+    format_examples,
+    format_overdue,
+)
 
 
 def test_format_examples_renders_all_languages() -> None:
@@ -52,6 +57,21 @@ def test_format_declension_uses_required_order() -> None:
         }
     )
     assert value == "nominativ: das Haus, akkusativ: das Haus, dativ: dem Haus, genitiv: des Hauses"
+
+
+def test_format_declension_skips_verb_governance_key() -> None:
+    value = format_declension(
+        {
+            "government": "teilnehmen an + D",
+            "nominativ": "das Haus",
+        }
+    )
+    assert value == "nominativ: das Haus"
+
+
+def test_extract_verb_governance_normalized_key() -> None:
+    value = extract_verb_governance({"Regierung": "mitmachen bei + D"})
+    assert value == "mitmachen bei + D"
 
 
 def test_format_overdue_minutes() -> None:

@@ -52,6 +52,7 @@ from bot.services.content_generation import ContentGenerationError, OpenAIConten
 from bot.services.llm_rate_limiter import LLMRateLimiter
 from bot.services.tts import GTTSService
 from bot.utils.formatting import (
+    extract_verb_governance,
     format_declension,
     format_examples,
     format_next_review_delta,
@@ -246,8 +247,12 @@ def _format_full_snapshot_text(
         lines.append(f"Часть речи: {word.part_of_speech}")
     if getattr(word, "gender", None):
         lines.append(f"Род: {word.gender}")
-    if getattr(word, "declension", None):
-        lines.append("Склонение: " + format_declension(word.declension))
+    governance = extract_verb_governance(getattr(word, "declension", None))
+    if governance:
+        lines.append(f"Управление: {governance}")
+    declension_text = format_declension(getattr(word, "declension", None))
+    if declension_text:
+        lines.append("Склонение: " + declension_text)
 
     lines.extend(["", "Синонимы:"])
     synonyms_raw = snapshot.get("synonyms", [])
@@ -437,8 +442,12 @@ def _generated_preview_text(
         lines.append(f"Часть речи: {content.part_of_speech}")
     if content.gender:
         lines.append(f"Род: {content.gender}")
-    if content.declension:
-        lines.append("Склонение: " + format_declension(content.declension))
+    governance = extract_verb_governance(content.declension)
+    if governance:
+        lines.append(f"Управление: {governance}")
+    declension_text = format_declension(content.declension)
+    if declension_text:
+        lines.append("Склонение: " + declension_text)
     if content.synonyms:
         lines.append("Синонимы: " + ", ".join(content.synonyms))
     lines.append("Примеры:")
@@ -655,8 +664,12 @@ def _train_result_text(
     ]
     if card.gender:
         lines.append(f"Род: {card.gender}")
-    if card.declension:
-        lines.append("Склонение: " + format_declension(card.declension))
+    governance = extract_verb_governance(card.declension)
+    if governance:
+        lines.append(f"Управление: {governance}")
+    declension_text = format_declension(card.declension)
+    if declension_text:
+        lines.append("Склонение: " + declension_text)
     lines.append("")
     lines.append("Примеры:")
     lines.append(

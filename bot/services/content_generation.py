@@ -92,7 +92,15 @@ class OpenAIContentGenerator:
             ),
             "part_of_speech": "part of speech or null",
             "gender": "for German target language: der/die/das else null",
-            "declension": "for German target language: object with nominativ/akkusativ/dativ/genitiv else null",
+            "verb_governance": (
+                "for German target verbs only: government pattern string, "
+                "e.g. 'teilnehmen an + D' or 'mitmachen bei + D'"
+            ),
+            "declension": (
+                "for German target nouns: object with nominativ/akkusativ/dativ/genitiv; "
+                "for German target verbs: include field government with same value as verb_governance; "
+                "else null"
+            ),
             "transcription": "optional transcription or null",
             "examples": [
                 {
@@ -126,7 +134,9 @@ class OpenAIContentGenerator:
                         "Each example must contain only TWO aligned texts: "
                         "target_sentence and source_translation of the same sentence.\n"
                         "Synonyms must be on TARGET language and each must include SOURCE-language translation in parentheses.\n"
-                        "For German target language include article and declension.\n"
+                        "For German target language:\n"
+                        "- nouns: include article and declension;\n"
+                        "- verbs: include government pattern like 'teilnehmen an + D' in verb_governance and declension.government.\n"
                         f"Schema: {json.dumps(schema_instructions, ensure_ascii=False)}"
                     ),
                 },
@@ -465,6 +475,7 @@ def _parse_generated_word_content(
     part_of_speech = _safe_optional_text(payload.get("part_of_speech"))
     gender = _safe_optional_text(payload.get("gender"))
     transcription = _safe_optional_text(payload.get("transcription"))
+    verb_governance = _safe_optional_text(payload.get("verb_governance"))
 
     declension_raw = payload.get("declension")
     declension: dict[str, str] | None = None
@@ -477,6 +488,19 @@ def _parse_generated_word_content(
         if not declension:
             declension = None
 
+    if target_lang == "DE" and _is_verb_pos(part_of_speech):
+        governance_value = verb_governance
+        if not governance_value and declension:
+            for key in ("government", "governance", "regierung", "rektion", "управление"):
+                value = _safe_optional_text(declension.get(key))
+                if value:
+                    governance_value = value
+                    break
+        if governance_value:
+            merged = dict(declension or {})
+            merged["government"] = governance_value
+            declension = merged
+
     return GeneratedWordContent(
         word=word,
         translation=translation,
@@ -487,6 +511,13 @@ def _parse_generated_word_content(
         transcription=transcription,
         examples=tuple(examples),
     )
+
+
+def _is_verb_pos(value: str | None) -> bool:
+    if not value:
+        return False
+    lowered = value.strip().lower()
+    return "verb" in lowered or "глагол" in lowered or "verbum" in lowered
 
 
 def _safe_optional_text(value: object) -> str | None:
